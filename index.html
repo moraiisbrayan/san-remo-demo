@@ -269,10 +269,27 @@ p.lead{margin:0 0 18px;color:var(--muted);font-size:14.5px;line-height:1.5}
   }
   var state = {paid:false, method:'pix', points:61};
   var timers = [];
-  var stream = null;
+  // A câmera é pedida uma vez só, no primeiro toque, e fica aberta enquanto o app estiver aberto.
+  var camPromise = null;
+  function getCam(){
+    if(camPromise) return camPromise.then(function(st){
+      var live = st.getVideoTracks().some(function(t){return t.readyState==='live'});
+      if(live) return st;
+      camPromise = null; return getCam();
+    });
+    if(!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) return Promise.reject(new Error('sem câmera'));
+    camPromise = navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false})
+      .catch(function(e){camPromise=null;throw e});
+    return camPromise;
+  }
+  function warmCam(){
+    document.removeEventListener('pointerdown',warmCam,true);
+    getCam().catch(function(){});
+  }
+  document.addEventListener('pointerdown',warmCam,true);
 
   function brl(v){return 'R$ '+v.toFixed(2).replace('.',',')}
-  function clear(){timers.forEach(clearTimeout);timers=[];if(stream){stream.getTracks().forEach(function(t){t.stop()});stream=null}if(window.__cd){clearInterval(window.__cd);window.__cd=null}}
+  function clear(){timers.forEach(clearTimeout);timers=[];if(window.__cd){clearInterval(window.__cd);window.__cd=null}}
   var root = document.getElementById('screens');
   var nav = document.getElementById('nav');
 
@@ -329,15 +346,13 @@ p.lead{margin:0 0 18px;color:var(--muted);font-size:14.5px;line-height:1.5}
       }
       box.addEventListener('click',found);
       function fallback(){timers.push(setTimeout(found,1600))}
-      if(navigator.mediaDevices && navigator.mediaDevices.getUserMedia){
-        navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false}).then(function(st){
-          var v=document.getElementById('cam');
-          if(!v){st.getTracks().forEach(function(t){t.stop()});return}
-          stream=st; v.srcObject=st; v.hidden=false; box.classList.add('live');
-          var p=v.play(); if(p&&p.catch) p.catch(function(){});
-          timers.push(setTimeout(found,3500));
-        }).catch(fallback);
-      } else fallback();
+      getCam().then(function(st){
+        var v=document.getElementById('cam');
+        if(!v) return;
+        v.srcObject=st; v.hidden=false; box.classList.add('live');
+        var p=v.play(); if(p&&p.catch) p.catch(function(){});
+        timers.push(setTimeout(found,3500));
+      }).catch(fallback);
     },
     conta:function(){
       var rows = ITEMS.map(function(i){
